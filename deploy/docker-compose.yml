@@ -1,18 +1,19 @@
 # =============================================================================
 # ScholarAgent — Docker Compose 本地开发编排
 # =============================================================================
-# 所有中间件（Redis、Qdrant、RabbitMQ）均通过 Docker 管理，
-# 不依赖宿主机安装。应用服务（gateway、agent-core 等）通过 go run 启动。
+# 所有中间件（Redis、Qdrant、RabbitMQ）通过 Docker 管理，
+# 应用服务支持两种模式：
+#   1. 容器模式：docker compose up -d          （全 Docker）
+#   2. 混合模式：docker compose up -d redis + go run  （开发调试）
 #
 # 快速启动：
-#   docker compose -f deploy/docker-compose.yml up -d redis    # Phase 1
-#   docker compose -f deploy/docker-compose.yml up -d           # Phase 2 全栈
+#   docker compose -f deploy/docker-compose.yml build   # 构建镜像
+#   docker compose -f deploy/docker-compose.yml up -d   # 启动全栈
+#   docker compose -f deploy/docker-compose.yml ps      # 查看状态
 #
-# 停止：
+# 停止 / 清理：
 #   docker compose -f deploy/docker-compose.yml down
-#
-# 数据清理：
-#   docker compose -f deploy/docker-compose.yml down -v         # 删除所有数据卷
+#   docker compose -f deploy/docker-compose.yml down -v
 # =============================================================================
 
 services:
@@ -32,14 +33,78 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-    labels:
-      - "scholar.phase=1"
-      - "scholar.service=session-store"
+    networks:
+      - scholar-net
+
+  # =========================================================================
+  # Phase 1 — Tool Service（gRPC :50052）
+  # =========================================================================
+  tool-service:
+    build:
+      context: ..
+      dockerfile: tool-service/Dockerfile
+    container_name: scholar-tool-service
+    ports:
+      - "50052:50052"
+    environment:
+      - TOOL_SERVICE_GRPC_PORT=50052
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - scholar-net
+
+  # =========================================================================
+  # Phase 1 — Agent Core（gRPC :50051）
+  # =========================================================================
+  agent-core:
+    build:
+      context: ..
+      dockerfile: agent-core/Dockerfile
+    container_name: scholar-agent-core
+    ports:
+      - "50051:50051"
+    environment:
+      - AGENT_CORE_GRPC_PORT=50051
+      - TOOL_SERVICE_GRPC_ADDR=tool-service:50052
+      - REDIS_URL=redis://redis:6379
+      - AGENT_MAX_STEPS=5
+    depends_on:
+      - tool-service
+    restart: unless-stopped
+    networks:
+      - scholar-net
+
+  # =========================================================================
+  # Phase 1 — Gateway（HTTP :8080）
+  # =========================================================================
+  gateway:
+    build:
+      context: ..
+      dockerfile: gateway/Dockerfile
+    container_name: scholar-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - HTTP_PORT=8080
+      - AGENT_CORE_GRPC_ADDR=agent-core:50051
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - agent-core
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - scholar-net
 
   # =========================================================================
   # Phase 2 — Qdrant 向量数据库（RAG 知识库）
   # =========================================================================
-  # 启动：取消下方注释后 docker compose up -d
   # qdrant:
   #   image: qdrant/qdrant:latest
   #   container_name: scholar-qdrant
@@ -54,6 +119,8 @@ services:
   #     interval: 10s
   #     timeout: 5s
   #     retries: 3
+  #   networks:
+  #     - scholar-net
 
   # =========================================================================
   # Phase 2 — RabbitMQ 消息队列（PDF 异步解析）
@@ -62,8 +129,8 @@ services:
   #   image: rabbitmq:3-management-alpine
   #   container_name: scholar-rabbitmq
   #   ports:
-  #     - "5672:5672"   # AMQP
-  #     - "15672:15672" # 管理界面 http://localhost:15672 (guest/guest)
+  #     - "5672:5672"
+  #     - "15672:15672"
   #   volumes:
   #     - rabbitmq_data:/var/lib/rabbitmq
   #   restart: unless-stopped
@@ -72,8 +139,14 @@ services:
   #     interval: 10s
   #     timeout: 5s
   #     retries: 5
+  #   networks:
+  #     - scholar-net
 
 volumes:
   redis_data:
   # qdrant_data:
   # rabbitmq_data:
+
+networks:
+  scholar-net:
+    driver: bridge

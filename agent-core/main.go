@@ -1,17 +1,80 @@
-// Agent Core — ReAct 推理引擎
+// Agent Core — ReAct 推理引擎 gRPC 服务
 //
 // 职责：
-//   - ReAct 主循环（Thought → Action → Observation → Answer）
+//   - AgentCore.Run gRPC 流式接口（CLI / Gateway 通过此接口发起推理）
 //   - LLM Gateway（DeepSeek FC + MiMo/MiniMax 降级）
-//   - gRPC Server（AgentCore.Run 流式接口）
-//   - 会话历史管理（通过 Redis）
+//   - 会话管理（Redis / 内存）
 //
-// Phase 1 验收：CLI 能走通 question → tool call → answer
+// Phase 1 最小范围：gRPC Server 可启动，Run 返回固定事件（验证连通性）
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"log/slog"
+	"net"
+	"os"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	pb "github.com/Tangyd893/Scholar-Agent/proto/gen/agent"
+)
+
+// agentServer 实现 proto AgentCoreServer 接口。
+type agentServer struct {
+	pb.UnimplementedAgentCoreServer
+}
+
+// Run 处理推理请求，返回流式 StepEvent。
+// Phase 1 最小实现：返回 thought + answer 两个事件以验证 gRPC 连通性。
+func (s *agentServer) Run(req *pb.RunRequest, stream pb.AgentCore_RunServer) error {
+	slog.Info("agent-core: Run", "session_id", req.SessionId, "query", req.Query)
+
+	// Thought 事件
+	if err := stream.Send(&pb.StepEvent{
+		Type:      "thought",
+		Content:   fmt.Sprintf("收到问题: %s", req.Query),
+		Step:      1,
+		Timestamp: timestamppb.Now(),
+	}); err != nil {
+		return err
+	}
+
+	// Answer 事件
+	if err := stream.Send(&pb.StepEvent{
+		Type:      "answer",
+		Content:   "Agent Core gRPC 服务运行正常。完整的 ReAct 推理将在后续版本中接入。",
+		Step:      1,
+		Timestamp: timestamppb.Now(),
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func main() {
-	fmt.Println("agent-core starting gRPC on :50051...")
-	// TODO: 初始化 LLMClient、ToolServiceClient(gRPC)、Redis、启动 gRPC server
+	port := os.Getenv("AGENT_CORE_GRPC_PORT")
+	if port == "" {
+		port = "50051"
+	}
+
+	lis, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		slog.Error("agent-core: listen failed", "error", err)
+		os.Exit(1)
+	}
+
+	s := grpc.NewServer()
+	pb.RegisterAgentCoreServer(s, &agentServer{})
+	reflection.Register(s)
+
+	fmt.Printf("agent-core gRPC listening on :%s\n", port)
+	slog.Info("agent-core started", "port", port)
+
+	if err := s.Serve(lis); err != nil {
+		slog.Error("agent-core: serve failed", "error", err)
+		os.Exit(1)
+	}
 }
