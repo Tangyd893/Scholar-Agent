@@ -90,6 +90,7 @@ services:
     environment:
       - HTTP_PORT=8080
       - AGENT_CORE_GRPC_ADDR=agent-core:50051
+      - TOOL_SERVICE_GRPC_ADDR=tool-service:50052
       - REDIS_URL=redis://redis:6379
     depends_on:
       - agent-core
@@ -159,6 +160,23 @@ services:
       rabbitmq:
         condition: service_healthy
       qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - scholar-net
+
+  # =========================================================================
+  # Phase 2 — Frontend（Nginx + React）
+  # =========================================================================
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    container_name: scholar-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      gateway:
         condition: service_healthy
     restart: unless-stopped
     networks:

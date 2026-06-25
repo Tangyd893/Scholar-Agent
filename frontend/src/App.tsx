@@ -3,6 +3,7 @@ import { Plus } from "lucide-react";
 import { ChatView, type Message } from "./components/ChatView";
 import { MessageInput } from "./components/MessageInput";
 import { useSSE } from "./hooks/useSSE";
+import { useUpload } from "./hooks/useUpload";
 
 function generateSessionId() {
   return `sess_${Date.now()}${Math.random().toString(36).slice(2, 9)}`;
@@ -12,6 +13,7 @@ export default function App() {
   const [sessionId, setSessionId] = useState(() => generateSessionId());
   const [messages, setMessages] = useState<Message[]>([]);
   const { events, isStreaming, sendMessage, cancel } = useSSE();
+  const { job: uploadJob, isUploading, uploadPDF, clearJob } = useUpload();
   const prevStreaming = useRef(isStreaming);
 
   const handleSend = useCallback(
@@ -72,6 +74,11 @@ export default function App() {
         onSend={handleSend}
         isStreaming={isStreaming}
         onCancel={cancel}
+        uploadJob={uploadJob}
+        isUploading={isUploading}
+        onUpload={(file) => uploadPDF(file, sessionId)}
+        onClearUpload={clearJob}
+        sessionId={sessionId}
       />
     </div>
   );
