@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package agent;
+
+option go_package = "github.com/Tangyd893/Scholar-Agent/proto/gen/agent;agentpb";
+
+import "google/protobuf/timestamp.proto";
+
+// AgentCore 是 ReAct 推理引擎的 gRPC 服务接口。
+// Gateway 通过此接口发起推理请求，接收流式 StepEvent。
+service AgentCore {
+  // Run 发起一次带上下文的学术问答，返回推理事件流。
+  rpc Run(RunRequest) returns (stream StepEvent);
+}
+
+message RunRequest {
+  string session_id = 1;  // Redis 会话标识
+  string query = 2;       // 用户自然语言问题
+}
+
+message StepEvent {
+  string type = 1;           // thought | action | observation | answer | error
+  string content = 2;        // 事件文本内容
+  int32 step = 3;            // 当前 ReAct 步数
+  string tool_args_json = 4; // action 事件时附带工具参数 JSON
+  google.protobuf.Timestamp timestamp = 5;
+}

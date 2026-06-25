@@ -1,0 +1,44 @@
+# ScholarAgent — Docker Compose 本地开发编排
+# Phase 1: 仅 Redis（其余服务通过 go run 启动或 CLI 直连）
+# Phase 2+: 加入 gateway、agent-core、tool-service、pdf-worker、qdrant、rabbitmq
+
+version: "3.8"
+
+services:
+  # =========================================================================
+  # Phase 1 必需 — 会话存储
+  # =========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: scholar-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # =========================================================================
+  # Phase 2+ — 向量数据库
+  # =========================================================================
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   container_name: scholar-qdrant
+  #   ports:
+  #     - "6333:6333"
+  #   volumes:
+  #     - ./qdrant_storage:/qdrant/storage
+  #   restart: unless-stopped
+
+  # =========================================================================
+  # Phase 2+ — 消息队列（PDF 异步解析）
+  # =========================================================================
+  # rabbitmq:
+  #   image: rabbitmq:3-management-alpine
+  #   container_name: scholar-rabbitmq
+  #   ports:
+  #     - "5672:5672"
+  #     - "15672:15672"
+  #   restart: unless-stopped
+
+volumes:
+  redis_data:

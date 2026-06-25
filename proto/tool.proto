@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package tool;
+
+option go_package = "github.com/Tangyd893/Scholar-Agent/proto/gen/tool;toolpb";
+
+// ToolService 是工具执行与 PDF 管理的 gRPC 服务接口。
+// Agent Core 通过此接口调用搜索、摘要等工具。
+service ToolService {
+  // Execute 同步执行一个工具，返回结果。
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+
+  // IngestPDF 提交 PDF 解析任务，返回异步 job_id（Phase 2）。
+  rpc IngestPDF(IngestRequest) returns (IngestResponse);
+}
+
+message ExecuteRequest {
+  string tool_name = 1;      // 工具名：search_papers | get_abstract | rag_query | generate_citation
+  string arguments_json = 2; // 工具参数 JSON 字符串
+}
+
+message ExecuteResponse {
+  string result = 1; // 成功时的 JSON 结果
+  string error = 2;  // 失败时的错误信息
+}
+
+message IngestRequest {
+  string file_id = 1;    // 已上传 PDF 的文件标识
+  string session_id = 2; // 关联会话（可选）
+}
+
+message IngestResponse {
+  string job_id = 1; // 异步任务 ID，可通过 /api/v1/jobs/{id} 轮询
+}

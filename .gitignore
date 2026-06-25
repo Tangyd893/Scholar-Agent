@@ -1,0 +1,31 @@
+# ScholarAgent .gitignore
+
+# --- 环境变量（含密钥，禁止提交）---
+.env
+
+# --- Go ---
+*.exe
+*.test
+*.out
+vendor/
+
+# --- IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- 前端 ---
+frontend/node_modules/
+frontend/dist/
+
+# --- Qdrant 本地数据 ---
+qdrant_storage/
+
+# --- Docker ---
+# (保留 deploy/docker-compose.yml)
