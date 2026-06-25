@@ -64,20 +64,19 @@ func main() {
 	}
 
 	// =========================================================================
-	// 初始化 LLM
+	// 初始化 LLM（DeepSeek → MiMo → MiniMax 降级链）
 	// =========================================================================
 	var llmClient llm.LLMClient
-	ds, err := llm.NewDeepSeek()
+	fb, err := llm.NewFallback()
 	if err != nil {
-		slog.Warn("agent-core: DeepSeek unavailable, using MockLLM", "error", err)
+		slog.Warn("agent-core: all LLM providers unavailable, using MockLLM", "error", err)
 		llmClient = &coreagent.MockLLM{
 			ToolName:    "search_papers",
 			ToolArgs:    `{"query":"attention mechanism"}`,
 			FinalAnswer: "Agent Core 使用 MockLLM 模式运行。设置 DEEPSEEK_API_KEY 以启用真实推理。",
 		}
 	} else {
-		llmClient = ds
-		slog.Info("agent-core: using DeepSeek", "model", ds.Model())
+		llmClient = fb
 	}
 
 	// =========================================================================
