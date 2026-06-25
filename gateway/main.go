@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/Tangyd893/Scholar-Agent/pkg/metrics"
+	"github.com/Tangyd893/Scholar-Agent/pkg/session"
 	agentpb "github.com/Tangyd893/Scholar-Agent/proto/gen/agent"
 	toolpb "github.com/Tangyd893/Scholar-Agent/proto/gen/tool"
 )
@@ -110,6 +111,16 @@ func main() {
 		toolClient = toolpb.NewToolServiceClient(toolConn)
 	}
 
+	// Redis 会话存储
+	var sessionStore *session.Store
+	rs, redisErr := session.NewStore()
+	if redisErr != nil {
+		slog.Warn("gateway: Redis unavailable, sessions won't persist", "error", redisErr)
+	} else {
+		sessionStore = rs
+		slog.Info("gateway: using Redis session store")
+	}
+
 	jobs := newJobTracker()
 	mux := http.NewServeMux()
 
@@ -189,12 +200,19 @@ func main() {
 	})
 
 	// =====================================================================
-	// Sessions
+	// Sessions (Redis-backed)
 	// =====================================================================
 	mux.HandleFunc("POST /api/v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ Title string `json:"title"` }
 		json.NewDecoder(r.Body).Decode(&req)
-		sid := fmt.Sprintf("sess_%d", time.Now().UnixNano())
+		deviceID := getDeviceID(r)
+		var sid string
+		if sessionStore != nil {
+			sid, _ = sessionStore.Create(deviceID, req.Title)
+		}
+		if sid == "" {
+			sid = fmt.Sprintf("sess_%d", time.Now().UnixNano())
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -205,6 +223,22 @@ func main() {
 	mux.HandleFunc("GET /api/v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"sessions": []interface{}{}})
+	})
+	mux.HandleFunc("GET /api/v1/sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+		sid := r.PathValue("id")
+		if sessionStore == nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"messages": []interface{}{}})
+			return
+		}
+		msgs, err := sessionStore.GetMessages(sid, 50)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"messages": []interface{}{}})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"messages": msgs})
 	})
 
 	// =====================================================================
@@ -332,6 +366,16 @@ func main() {
 	<-ctx.Done()
 	slog.Info("gateway shutting down...")
 	srv.Shutdown(context.Background())
+}
+
+func getDeviceID(r *http.Request) string {
+	if id := r.Header.Get("X-Device-ID"); id != "" {
+		return id
+	}
+	if c, err := r.Cookie("device_id"); err == nil {
+		return c.Value
+	}
+	return "anonymous"
 }
 
 func writeSSE(w io.Writer, event, data string) {

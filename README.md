@@ -269,6 +269,7 @@ curl -N -X POST http://localhost:8080/api/v1/chat/stream \
 | [docs/API规范.md](docs/API规范.md) | REST / SSE 端点与事件 Schema |
 | [docs/里程碑与验收.md](docs/里程碑与验收.md) | 三阶段 Definition of Done |
 | [docs/动工前指引.md](docs/动工前指引.md) | 开工顺序与防走偏原则 |
+| [docs/待办清单.md](docs/待办清单.md) | 完成度审计与优先级待办 |
 
 ---
 

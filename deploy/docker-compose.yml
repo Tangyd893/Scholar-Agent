@@ -49,6 +49,10 @@ services:
     environment:
       - TOOL_SERVICE_GRPC_PORT=50052
       - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - QDRANT_URL=http://qdrant:6333
+      - EMBEDDING_API_KEY=${DEEPSEEK_API_KEY}
+      - EMBEDDING_BASE_URL=https://api.deepseek.com/v1
     depends_on:
       redis:
         condition: service_healthy
@@ -71,6 +75,9 @@ services:
       - TOOL_SERVICE_GRPC_ADDR=tool-service:50052
       - REDIS_URL=redis://redis:6379
       - AGENT_MAX_STEPS=5
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_MODEL=deepseek-v4-flash
+      - DEEPSEEK_THINKING=disabled
     depends_on:
       - tool-service
     restart: unless-stopped
