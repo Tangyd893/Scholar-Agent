@@ -20,14 +20,14 @@ type Client struct {
 
 // Point 是 Qdrant 中的一个向量点（文档片段）。
 type Point struct {
-	ID      string                 `json:"id"`
+	ID      interface{}            `json:"id"`
 	Vector  []float64              `json:"vector"`
 	Payload map[string]interface{} `json:"payload"`
 }
 
 // SearchResult 是检索返回的匹配结果。
 type SearchResult struct {
-	ID      string                 `json:"id"`
+	ID      interface{}            `json:"id"`
 	Score   float64                `json:"score"`
 	Payload map[string]interface{} `json:"payload"`
 }

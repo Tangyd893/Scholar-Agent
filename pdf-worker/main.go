@@ -158,7 +158,7 @@ func processJob(ctx context.Context, j job, embed *embedding.Client, qd *qdrant.
 		}
 
 		point := qdrant.Point{
-			ID:     fmt.Sprintf("%s_%d", j.JobID, i),
+			ID:     i,
 			Vector: vec,
 			Payload: map[string]interface{}{
 				"job_id":   j.JobID,
