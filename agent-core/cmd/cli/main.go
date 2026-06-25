@@ -147,6 +147,16 @@ func main() {
 			},
 			"required": []string{"query"},
 		})
+		grpcReg.RegisterMeta("parse_pdf", "提交 PDF 文件进行异步解析与入库", map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"file_id": map[string]interface{}{
+					"type":        "string",
+					"description": "上传的 PDF 文件标识",
+				},
+			},
+			"required": []string{"file_id"},
+		})
 		grpcReg.RegisterMeta("generate_citation", "为指定论文生成 BibTeX 引用", map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

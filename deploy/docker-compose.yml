@@ -125,27 +125,49 @@ services:
   # =========================================================================
   # Phase 2 — RabbitMQ 消息队列（PDF 异步解析）
   # =========================================================================
-  # rabbitmq:
-  #   image: rabbitmq:3-management-alpine
-  #   container_name: scholar-rabbitmq
-  #   ports:
-  #     - "5672:5672"
-  #     - "15672:15672"
-  #   volumes:
-  #     - rabbitmq_data:/var/lib/rabbitmq
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #   networks:
-  #     - scholar-net
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: scholar-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scholar-net
+
+  # =========================================================================
+  # Phase 2 — PDF Worker（RabbitMQ 消费者）
+  # =========================================================================
+  pdf-worker:
+    build:
+      context: ..
+      dockerfile: pdf-worker/Dockerfile
+    container_name: scholar-pdf-worker
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - QDRANT_URL=http://qdrant:6333
+      - EMBEDDING_API_KEY=${DEEPSEEK_API_KEY}
+      - EMBEDDING_BASE_URL=https://api.deepseek.com/v1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - scholar-net
 
 volumes:
   redis_data:
   qdrant_data:
-  # rabbitmq_data:
+  rabbitmq_data:
 
 networks:
   scholar-net:

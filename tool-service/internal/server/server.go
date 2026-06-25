@@ -7,6 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 
 	"github.com/Tangyd893/Scholar-Agent/pkg/arxiv"
 	"github.com/Tangyd893/Scholar-Agent/pkg/embedding"
@@ -27,15 +31,53 @@ type ToolServer struct {
 	arxiv   *arxiv.Client
 	embed   *embedding.Client
 	qdrant  *qdrant.Client
+	mqConn  *amqp.Connection
+	mqCh    *amqp.Channel
 }
+
+const mqQueue = "pdf.parse"
 
 // New 创建 ToolService gRPC 服务端。
 func New() *ToolServer {
-	return &ToolServer{
+	s := &ToolServer{
 		arxiv:  arxiv.NewClient(),
-		embed:  nil, // 延迟初始化（Phase 2 需要 EMBEDDING_API_KEY）
+		embed:  nil,
 		qdrant: qdrant.NewClient(qdrantCollection),
 	}
+
+	// 尝试连接 RabbitMQ（非致命失败）
+	s.connectMQ()
+	return s
+}
+
+func (s *ToolServer) connectMQ() {
+	mqURL := os.Getenv("RABBITMQ_URL")
+	if mqURL == "" {
+		mqURL = "amqp://guest:guest@localhost:5672/"
+	}
+
+	conn, err := amqp.Dial(mqURL)
+	if err != nil {
+		slog.Warn("tool-service: RabbitMQ not available, IngestPDF disabled", "error", err)
+		return
+	}
+
+	ch, err := conn.Channel()
+	if err != nil {
+		slog.Warn("tool-service: failed to open channel", "error", err)
+		return
+	}
+
+	// 声明队列
+	_, err = ch.QueueDeclare(mqQueue, true, false, false, false, nil)
+	if err != nil {
+		slog.Warn("tool-service: failed to declare queue", "error", err)
+		return
+	}
+
+	s.mqConn = conn
+	s.mqCh = ch
+	slog.Info("tool-service: RabbitMQ connected", "queue", mqQueue)
 }
 
 // initEmbed 延迟初始化 embedding 客户端。
@@ -66,14 +108,59 @@ func (s *ToolServer) Execute(ctx context.Context, req *pb.ExecuteRequest) (*pb.E
 		return s.ragQuery(ctx, req.ArgumentsJson)
 	case "generate_citation":
 		return s.generateCitation(ctx, req.ArgumentsJson)
+	case "parse_pdf":
+		return s.parsePDF(ctx, req.ArgumentsJson)
 	default:
 		return &pb.ExecuteResponse{Error: fmt.Sprintf("unknown tool: %s", req.ToolName)}, nil
 	}
 }
 
-// IngestPDF 提交 PDF 解析任务（Phase 2 实现）。
+// IngestPDF 提交 PDF 解析任务，发布到 RabbitMQ。
 func (s *ToolServer) IngestPDF(ctx context.Context, req *pb.IngestRequest) (*pb.IngestResponse, error) {
-	return &pb.IngestResponse{JobId: ""}, fmt.Errorf("IngestPDF not implemented yet")
+	if s.mqCh == nil {
+		return &pb.IngestResponse{JobId: ""}, fmt.Errorf("RabbitMQ not available")
+	}
+
+	jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
+
+	msg := map[string]interface{}{
+		"job_id":     jobID,
+		"file_id":    req.FileId,
+		"session_id": req.SessionId,
+	}
+	body, _ := json.Marshal(msg)
+
+	err := s.mqCh.PublishWithContext(ctx, "", mqQueue, false, false,
+		amqp.Publishing{
+			ContentType: "application/json",
+			Body:        body,
+		})
+	if err != nil {
+		return &pb.IngestResponse{JobId: ""}, fmt.Errorf("publish to MQ: %w", err)
+	}
+
+	slog.Info("tool-service: IngestPDF published", "job_id", jobID)
+	return &pb.IngestResponse{JobId: jobID}, nil
+}
+
+// parsePDF 工具（CLI 触发 PDF 解析）。
+func (s *ToolServer) parsePDF(ctx context.Context, argsJSON string) (*pb.ExecuteResponse, error) {
+	var params struct {
+		FileID    string `json:"file_id"`
+		SessionID string `json:"session_id"`
+	}
+	json.Unmarshal([]byte(argsJSON), &params)
+
+	resp, err := s.IngestPDF(ctx, &pb.IngestRequest{
+		FileId:    params.FileID,
+		SessionId: params.SessionID,
+	})
+	if err != nil {
+		return &pb.ExecuteResponse{Error: err.Error()}, nil
+	}
+
+	b, _ := json.Marshal(map[string]string{"job_id": resp.JobId, "status": "pending"})
+	return &pb.ExecuteResponse{Result: string(b)}, nil
 }
 
 // =========================================================================
