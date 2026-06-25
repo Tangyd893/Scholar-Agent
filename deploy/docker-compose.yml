@@ -1,12 +1,23 @@
+# =============================================================================
 # ScholarAgent — Docker Compose 本地开发编排
-# Phase 1: 仅 Redis（其余服务通过 go run 启动或 CLI 直连）
-# Phase 2+: 加入 gateway、agent-core、tool-service、pdf-worker、qdrant、rabbitmq
-
-version: "3.8"
+# =============================================================================
+# 所有中间件（Redis、Qdrant、RabbitMQ）均通过 Docker 管理，
+# 不依赖宿主机安装。应用服务（gateway、agent-core 等）通过 go run 启动。
+#
+# 快速启动：
+#   docker compose -f deploy/docker-compose.yml up -d redis    # Phase 1
+#   docker compose -f deploy/docker-compose.yml up -d           # Phase 2 全栈
+#
+# 停止：
+#   docker compose -f deploy/docker-compose.yml down
+#
+# 数据清理：
+#   docker compose -f deploy/docker-compose.yml down -v         # 删除所有数据卷
+# =============================================================================
 
 services:
   # =========================================================================
-  # Phase 1 必需 — 会话存储
+  # Phase 1 — Redis 会话存储
   # =========================================================================
   redis:
     image: redis:7-alpine
@@ -16,29 +27,53 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    labels:
+      - "scholar.phase=1"
+      - "scholar.service=session-store"
 
   # =========================================================================
-  # Phase 2+ — 向量数据库
+  # Phase 2 — Qdrant 向量数据库（RAG 知识库）
   # =========================================================================
+  # 启动：取消下方注释后 docker compose up -d
   # qdrant:
   #   image: qdrant/qdrant:latest
   #   container_name: scholar-qdrant
   #   ports:
   #     - "6333:6333"
+  #     - "6334:6334"
   #   volumes:
-  #     - ./qdrant_storage:/qdrant/storage
+  #     - qdrant_data:/qdrant/storage
   #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 3
 
   # =========================================================================
-  # Phase 2+ — 消息队列（PDF 异步解析）
+  # Phase 2 — RabbitMQ 消息队列（PDF 异步解析）
   # =========================================================================
   # rabbitmq:
   #   image: rabbitmq:3-management-alpine
   #   container_name: scholar-rabbitmq
   #   ports:
-  #     - "5672:5672"
-  #     - "15672:15672"
+  #     - "5672:5672"   # AMQP
+  #     - "15672:15672" # 管理界面 http://localhost:15672 (guest/guest)
+  #   volumes:
+  #     - rabbitmq_data:/var/lib/rabbitmq
   #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
 volumes:
   redis_data:
+  # qdrant_data:
+  # rabbitmq_data:

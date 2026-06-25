@@ -3,7 +3,7 @@
   <img src="https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React">
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis">
-  <img src="https://img.shields.io/badge/Status-Design_Phase-yellow?style=for-the-badge" alt="Status">
+  <img src="https://img.shields.io/badge/Status-Phase_1_Building-blue?style=for-the-badge" alt="Status">
 </p>
 
 <h1 align="center">🎓 ScholarAgent</h1>
@@ -27,7 +27,7 @@
 
 研究者在文献调研中常面临三类痛点：检索分散在 arXiv / Semantic Scholar 等平台、PDF 难以快速消化、引用格式需手工整理。ScholarAgent 以 **ReAct + Function Calling** 驱动 Agent 自主规划检索与阅读步骤，通过 SSE 将 Thought / Action / Observation 完整推送到前端，同时以 Go 微服务架构保证可部署、可扩展。
 
-**当前状态**：设计文档 v1.1 已完成，代码实现尚未开始。动工前请先阅读 [docs/动工前指引.md](docs/动工前指引.md)。
+**当前状态**：Phase 1 MVP 施工中 — Agent Core ReAct 引擎可用，tool-service gRPC 已通，arXiv API 已接入。详见 [docs/里程碑与验收.md](docs/里程碑与验收.md)。
 
 ---
 
@@ -148,38 +148,41 @@ Get-Content .env | ForEach-Object {
 | `AGENT_MAX_STEPS` | ❌ | ReAct 最大步数，默认 `5` |
 | `SESSION_TTL_DAYS` | ❌ | 会话 TTL，默认 `7` |
 
-### ▶️ Step 3 — 运行
+### ▶️ Step 3 — 启动中间件
 
-> ⚠️ **代码尚未实现**，以下为 Phase 1 完成后的预期启动方式。
-
-启动基础设施（Redis）：
+> 🐳 **所有中间件通过 Docker 管理**，无需宿主机安装 Redis/Qdrant/RabbitMQ。
 
 ```bash
+# Phase 1：仅需 Redis
 docker compose -f deploy/docker-compose.yml up -d redis
+
+# 验证 Redis 健康状态
+docker compose -f deploy/docker-compose.yml ps
 ```
 
-启动全部微服务（Phase 1 完成后）：
+### ▶️ Step 4 — 运行 Agent
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d
+# Mock 模式（零 API 调用，验证流程）
+go run ./agent-core/cmd/cli --query "帮我找 attention 论文" --mock
+
+# 真实 DeepSeek + mock 工具
+go run ./agent-core/cmd/cli --query "帮我找 attention 论文"
+
+# 真实 DeepSeek + 真实 arXiv（本地直连）
+go run ./agent-core/cmd/cli --query "attention mechanism" --arxiv
+
+# 通过 gRPC 调用 tool-service（需先启动 tool-service）
+go run ./agent-core/cmd/cli --query "attention mechanism" --arxiv --grpc
+
+# 使用 Redis 持久化会话（需先启动 Redis）
+go run ./agent-core/cmd/cli --query "继续上次的讨论" --mock --redis
 ```
 
-CLI 问答（Phase 1 验收方式）：
+启动 tool-service（gRPC 模式需要）：
 
 ```bash
-go run ./agent-core/cmd/cli --query "帮我找 attention 机制相关的经典论文"
-```
-
-访问 Gateway 健康检查：
-
-```bash
-curl http://localhost:8080/health
-```
-
-访问 Web 界面（Phase 2 完成后）：
-
-```
-http://localhost:8080
+go run ./tool-service
 ```
 
 ---
@@ -248,7 +251,7 @@ curl -N -X POST http://localhost:8080/api/v1/chat/stream \
 
 | Phase | 周期 | 目标 | 状态 |
 |:-----:|:----:|------|:----:|
-| **Phase 1** | 1 周 | ReAct + 2 工具 + Redis + 微服务骨架 + CLI | 未开始 |
+| **Phase 1** | 1 周 | ReAct + 2 工具 + Redis + 微服务骨架 + CLI | 🔨 施工中 |
 | **Phase 2** | 1 周 | RAG + PDF 异步解析 + Web UI + Docker | 未开始 |
 | **Phase 3** | 1 周 | Prometheus + Grafana + K8s + 测试 + 演示 | 未开始 |
 
@@ -273,7 +276,7 @@ curl -N -X POST http://localhost:8080/api/v1/chat/stream \
 
 | 问题 | 解决方案 |
 |:-----|---------|
-| 项目能跑吗？ | 当前仅设计文档阶段，请按 [动工前指引](docs/动工前指引.md) 从 Phase 1 脚手架开始 |
+| 项目能跑吗？ | ✅ CLI 可运行！`go run ./agent-core/cmd/cli --query "测试" --mock` 即可体验 |
 | 用什么模型？ | 主力 `deepseek-v4-flash`，Agent 循环默认 **non-thinking** 模式 |
 | Phase 1 需要前端吗？ | 不需要，CLI 问答即验收标准 |
 | `deepseek-chat` 还能用吗？ | legacy ID，2026-07-24 退役，请迁移至 `deepseek-v4-flash` |
