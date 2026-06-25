@@ -166,6 +166,13 @@ func (m *MockSearchPapers) Execute(ctx context.Context, args string) (string, er
 	return string(b), nil
 }
 
+// ToolExecutor 是 Agent 使用的工具执行抽象。
+// ToolRegistry 和 GrpcRegistry 均实现此接口。
+type ToolExecutor interface {
+	List() []ToolDef
+	Execute(ctx context.Context, name, args string) (string, error)
+}
+
 // ToolDef 是工具的 LLM 级描述（与 llm.ToolDef 对应但独立定义，
 // 避免 tool 包直接依赖 llm 包）。
 type ToolDef struct {

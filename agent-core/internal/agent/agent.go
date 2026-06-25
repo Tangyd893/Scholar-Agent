@@ -49,7 +49,7 @@ const systemPrompt = `你是一个学术研究助手 ScholarAgent，帮助用户
 // Agent 是 ReAct 推理引擎的核心结构。
 type Agent struct {
 	llm      llm.LLMClient
-	tools    *tool.ToolRegistry
+	tools    tool.ToolExecutor
 	memory   memory.MemoryStore
 	maxSteps int
 }
@@ -76,9 +76,16 @@ func New(llmClient llm.LLMClient, mem memory.MemoryStore) *Agent {
 	}
 }
 
-// RegisterTool 向 Agent 注册一个工具。
+// RegisterTool 向 Agent 注册一个工具（仅适用于本地 ToolRegistry）。
 func (a *Agent) RegisterTool(t tool.Tool) {
-	a.tools.Register(t)
+	if r, ok := a.tools.(*tool.ToolRegistry); ok {
+		r.Register(t)
+	}
+}
+
+// SetToolExecutor 替换 Agent 的工具执行器（如切换为 gRPC）。
+func (a *Agent) SetToolExecutor(exec tool.ToolExecutor) {
+	a.tools = exec
 }
 
 // Run 执行一次 ReAct 推理，通过 channel 推送 StepEvent。

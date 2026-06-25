@@ -4,7 +4,8 @@
 //   go run ./agent-core/cmd/cli --query "帮我找 attention 相关的经典论文"          （DeepSeek + mock 工具）
 //   go run ./agent-core/cmd/cli --query "测试" --mock                             （MockLLM + mock 工具，零 API 调用）
 //   go run ./agent-core/cmd/cli --query "attention mechanism" --mock --arxiv     （MockLLM + 真实 arXiv）
-//   go run ./agent-core/cmd/cli --query "attention mechanism" --arxiv            （DeepSeek + 真实 arXiv）
+//   go run ./agent-core/cmd/cli --query "attention mechanism" --arxiv            （DeepSeek + 真实 arXiv 本地）
+//   go run ./agent-core/cmd/cli --query "attention mechanism" --arxiv --grpc     （DeepSeek + arXiv via gRPC）
 //
 // 环境变量：
 //   DEEPSEEK_API_KEY — 设置后自动使用真实 DeepSeek（否则回退 MockLLM）
@@ -29,6 +30,7 @@ func main() {
 	query := flag.String("query", "", "向 Agent 提问的问题（必填）")
 	useMock := flag.Bool("mock", false, "强制使用 Mock LLM（无需 API Key）")
 	useArxiv := flag.Bool("arxiv", false, "使用真实 arXiv API（默认 mock 工具）")
+	useGrpc := flag.Bool("grpc", false, "通过 gRPC 调用 tool-service（需先启动 tool-service）")
 	flag.Parse()
 
 	if *query == "" {
@@ -87,9 +89,36 @@ func main() {
 	ag := agent.New(llmClient, mem)
 
 	// 注册工具
-	if *useArxiv {
+	if *useGrpc {
+		// gRPC 模式：连接远程 tool-service
+		grpcReg, err := tool.NewGrpcRegistry("")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "❌ gRPC 连接失败: %v\n", err)
+			fmt.Fprintln(os.Stderr, "   请先启动 tool-service: go run ./tool-service")
+			os.Exit(1)
+		}
+		defer grpcReg.Close()
+
+		// 注册工具元数据（Schema 等），实际执行走 gRPC
+		s := &tool.MockSearchPapers{}
+		grpcReg.RegisterMeta(s.Name(), s.Description(), s.Schema())
+		// 注册 get_abstract（仅在 gRPC 模式下可用）
+		grpcReg.RegisterMeta("get_abstract", "按 arXiv paper_id 获取论文完整摘要", map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"paper_id": map[string]interface{}{
+					"type":        "string",
+					"description": "arXiv 论文 ID，如 1706.03762",
+				},
+			},
+			"required": []string{"paper_id"},
+		})
+
+		ag.SetToolExecutor(grpcReg)
+		fmt.Println("🔗 通过 gRPC 调用 tool-service\n")
+	} else if *useArxiv {
 		ag.RegisterTool(tool.NewArxivSearch())
-		fmt.Println("📡 使用真实 arXiv API\n")
+		fmt.Println("📡 使用真实 arXiv API（本地）\n")
 	} else {
 		ag.RegisterTool(&tool.MockSearchPapers{})
 	}

@@ -27,5 +27,9 @@ frontend/dist/
 # --- Qdrant 本地数据 ---
 qdrant_storage/
 
+# --- Protobuf 工具（不提交）---
+bin/
+include/
+
 # --- Docker ---
 # (保留 deploy/docker-compose.yml)

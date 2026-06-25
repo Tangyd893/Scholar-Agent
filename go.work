@@ -1,9 +1,10 @@
-go 1.22
+go 1.25.0
 
 use (
 	.
 	./agent-core
 	./gateway
+	./proto/gen
 	./scripts
 	./tool-service
 )

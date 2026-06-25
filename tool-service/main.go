@@ -9,9 +9,42 @@
 // Phase 1 最小范围：search_papers + get_abstract
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"log/slog"
+	"net"
+	"os"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
+
+	pb "github.com/Tangyd893/Scholar-Agent/proto/gen/tool"
+	"github.com/Tangyd893/Scholar-Agent/tool-service/internal/server"
+)
 
 func main() {
-	fmt.Println("tool-service starting gRPC on :50052...")
-	// TODO: 注册工具、初始化 arXiv client、启动 gRPC server
+	port := os.Getenv("TOOL_SERVICE_GRPC_PORT")
+	if port == "" {
+		port = "50052"
+	}
+
+	lis, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		slog.Error("failed to listen", "error", err)
+		os.Exit(1)
+	}
+
+	s := grpc.NewServer()
+	pb.RegisterToolServiceServer(s, server.New())
+
+	// 注册反射服务，方便 grpcurl 调试
+	reflection.Register(s)
+
+	fmt.Printf("tool-service gRPC listening on :%s\n", port)
+	slog.Info("tool-service started", "port", port)
+
+	if err := s.Serve(lis); err != nil {
+		slog.Error("failed to serve", "error", err)
+		os.Exit(1)
+	}
 }
