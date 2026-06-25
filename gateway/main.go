@@ -25,6 +25,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/Tangyd893/Scholar-Agent/pkg/metrics"
 	"github.com/Tangyd893/Scholar-Agent/pkg/session"
 	agentpb "github.com/Tangyd893/Scholar-Agent/proto/gen/agent"
@@ -110,6 +112,14 @@ func main() {
 		defer toolConn.Close()
 		toolClient = toolpb.NewToolServiceClient(toolConn)
 	}
+
+	// Redis 客户端（会话 + Job 状态）
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379"
+	}
+	redisOpts, _ := redis.ParseURL(redisURL)
+	redisClient := redis.NewClient(redisOpts)
 
 	// Redis 会话存储
 	var sessionStore *session.Store
@@ -286,22 +296,44 @@ func main() {
 		jobs.create(jobID)
 
 		go func() {
-			jobs.update(jobID, "processing", 30, "")
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			jobs.update(jobID, "processing", 10, "")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
-			resp, err := toolClient.IngestPDF(ctx, &toolpb.IngestRequest{
+			// 发布到 MQ
+			_, err := toolClient.IngestPDF(ctx, &toolpb.IngestRequest{
 				FileId: fileID, SessionId: sessionID,
 			})
 			if err != nil {
 				jobs.update(jobID, "failed", 0, err.Error())
 				return
 			}
-			if resp.JobId != "" {
-				jobID = resp.JobId
+
+			// 轮询 Redis 等待 pdf-worker 完成
+			statusKey := fmt.Sprintf("job:%s:status", jobID)
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+
+			for progress := 20; progress < 95; progress += 15 {
+				select {
+				case <-ctx.Done():
+					jobs.update(jobID, "failed", 0, "timeout")
+					return
+				case <-ticker.C:
+					st, _ := redisClient.Get(ctx, statusKey).Result()
+					if st == "completed" {
+						jobs.update(jobID, "completed", 100, "")
+						slog.Info("gateway: PDF ingest done (worker confirmed)", "job_id", jobID)
+						return
+					}
+					if st == "failed" {
+						jobs.update(jobID, "failed", 0, "worker failed")
+						return
+					}
+					jobs.update(jobID, "processing", progress, "")
+				}
 			}
-			jobs.update(jobID, "completed", 100, "")
-			slog.Info("gateway: PDF ingest done", "job_id", jobID)
+			jobs.update(jobID, "failed", 0, "timeout waiting for worker")
 		}()
 
 		w.Header().Set("Content-Type", "application/json")

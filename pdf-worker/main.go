@@ -18,8 +18,11 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/Tangyd893/Scholar-Agent/pkg/embedding"
 	"github.com/Tangyd893/Scholar-Agent/pkg/qdrant"
@@ -76,6 +79,14 @@ func main() {
 	}
 
 	// 初始化 Qdrant + Embedding
+	// Redis 状态上报
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379"
+	}
+	redisOpts, _ := redis.ParseURL(redisURL)
+	redisClient := redis.NewClient(redisOpts)
+
 	qdrantClient := qdrant.NewClient(collection)
 	embedClient, err := embedding.NewClient()
 	if err != nil {
@@ -114,9 +125,11 @@ func main() {
 			slog.Info("pdf-worker: processing", "job_id", j.JobID)
 			if err := processJob(ctx, j, embedClient, qdrantClient); err != nil {
 				slog.Error("pdf-worker: job failed", "job_id", j.JobID, "error", err)
-				msg.Nack(false, true) // 重新入队
+				redisClient.Set(ctx, fmt.Sprintf("job:%s:status", j.JobID), "failed", 24*time.Hour)
+				msg.Nack(false, false)
 			} else {
 				slog.Info("pdf-worker: job completed", "job_id", j.JobID)
+				redisClient.Set(ctx, fmt.Sprintf("job:%s:status", j.JobID), "completed", 24*time.Hour)
 				msg.Ack(false)
 			}
 		}
