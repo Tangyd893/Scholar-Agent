@@ -18,12 +18,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/Tangyd893/Scholar-Agent/pkg/metrics"
 	agentpb "github.com/Tangyd893/Scholar-Agent/proto/gen/agent"
 	toolpb "github.com/Tangyd893/Scholar-Agent/proto/gen/tool"
 )
@@ -110,6 +112,13 @@ func main() {
 
 	jobs := newJobTracker()
 	mux := http.NewServeMux()
+
+	// =====================================================================
+	// GET /metrics — Prometheus
+	// =====================================================================
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		metrics.Handler().ServeHTTP(w, r)
+	})
 
 	// =====================================================================
 	// GET /health
@@ -293,12 +302,9 @@ func main() {
 	if _, err := os.Stat(staticDir); err == nil {
 		fs := http.FileServer(http.Dir(staticDir))
 		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-			// 对 /api 和 /health 不拦截
-			if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" {
-				http.NotFound(w, r)
-				return
-			}
-			if r.URL.Path == "/health" {
+			// 不拦截 /api /health /metrics
+			p := r.URL.Path
+			if strings.HasPrefix(p, "/api") || p == "/health" || p == "/metrics" {
 				http.NotFound(w, r)
 				return
 			}

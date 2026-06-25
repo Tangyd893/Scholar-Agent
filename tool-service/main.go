@@ -13,11 +13,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
+	"github.com/Tangyd893/Scholar-Agent/pkg/metrics"
 	pb "github.com/Tangyd893/Scholar-Agent/proto/gen/tool"
 	"github.com/Tangyd893/Scholar-Agent/tool-service/internal/server"
 )
@@ -39,6 +41,17 @@ func main() {
 
 	// 注册反射服务，方便 grpcurl 调试
 	reflection.Register(s)
+
+	// Metrics endpoint
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9092"
+	}
+	go func() {
+		http.Handle("/metrics", metrics.Handler())
+		slog.Info("tool-service metrics", "port", metricsPort)
+		http.ListenAndServe(":"+metricsPort, nil)
+	}()
 
 	fmt.Printf("tool-service gRPC listening on :%s\n", port)
 	slog.Info("tool-service started", "port", port)

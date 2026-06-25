@@ -12,12 +12,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/Tangyd893/Scholar-Agent/pkg/metrics"
 	pb "github.com/Tangyd893/Scholar-Agent/proto/gen/agent"
 )
 
@@ -65,6 +67,17 @@ func main() {
 		slog.Error("agent-core: listen failed", "error", err)
 		os.Exit(1)
 	}
+
+	// Metrics endpoint
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9091"
+	}
+	go func() {
+		http.Handle("/metrics", metrics.Handler())
+		slog.Info("agent-core metrics", "port", metricsPort)
+		http.ListenAndServe(":"+metricsPort, nil)
+	}()
 
 	s := grpc.NewServer()
 	pb.RegisterAgentCoreServer(s, &agentServer{})

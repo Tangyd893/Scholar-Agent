@@ -10,6 +10,7 @@ require (
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/openai/openai-go v1.12.0 // indirect
+	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/redis/go-redis/v9 v9.21.0 // indirect
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

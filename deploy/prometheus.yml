@@ -1,0 +1,16 @@
+# Prometheus 配置 — 抓取 ScholarAgent 微服务指标
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "gateway"
+    static_configs:
+      - targets: ["gateway:8080"]
+
+  - job_name: "agent-core"
+    static_configs:
+      - targets: ["agent-core:9091"]
+
+  - job_name: "tool-service"
+    static_configs:
+      - targets: ["tool-service:9092"]

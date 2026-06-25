@@ -309,35 +309,28 @@ func (m *MockLLM) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatResp
 	count := m.callCount
 	m.mu.Unlock()
 
-	// 第一次调用：返回 tool call
-	if count == 1 {
-		toolName := m.ToolName
-		if toolName == "" {
-			toolName = "search_papers"
-		}
-		toolArgs := m.ToolArgs
-		if toolArgs == "" {
-			toolArgs = `{"query":"attention mechanism"}`
-		}
+	// FinalAnswer 为空 → 永远返回 tool call（用于测试 maxSteps）
+	toolName := m.ToolName
+	if toolName == "" {
+		toolName = "search_papers"
+	}
+	toolArgs := m.ToolArgs
+	if toolArgs == "" {
+		toolArgs = `{"query":"attention mechanism"}`
+	}
+
+	if m.FinalAnswer == "" || count == 1 {
 		return &llm.ChatResponse{
-			ToolCalls: []llm.ToolCall{
-				{
-					ID:        "mock_call_1",
-					Name:      toolName,
-					Arguments: toolArgs,
-				},
-			},
+			ToolCalls: []llm.ToolCall{{
+				ID: fmt.Sprintf("mock_call_%d", count),
+				Name: toolName, Arguments: toolArgs,
+			}},
 			Model: "mock",
 		}, nil
 	}
 
-	// 第二次调用：返回最终答案
-	answer := m.FinalAnswer
-	if answer == "" {
-		answer = "根据搜索结果，推荐以下经典论文：\n1. Attention Is All You Need (Vaswani et al., 2017)\n2. BERT (Devlin et al., 2018)"
-	}
 	return &llm.ChatResponse{
-		Content: answer,
+		Content: m.FinalAnswer,
 		Model:   "mock",
 	}, nil
 }

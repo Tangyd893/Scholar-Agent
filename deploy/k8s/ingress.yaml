@@ -1,0 +1,17 @@
+# ScholarAgent — Ingress（API + 前端）
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: scholar-ingress
+spec:
+  rules:
+    - host: scholar.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 8080
