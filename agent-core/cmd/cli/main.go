@@ -1,8 +1,10 @@
 // ScholarAgent CLI — Phase 1 端到端验收入口
 //
 // 用法：
-//   go run ./agent-core/cmd/cli --query "帮我找 attention 相关的经典论文"
-//   go run ./agent-core/cmd/cli --query "测试" --mock    （使用 mock LLM，无需 API Key）
+//   go run ./agent-core/cmd/cli --query "帮我找 attention 相关的经典论文"          （DeepSeek + mock 工具）
+//   go run ./agent-core/cmd/cli --query "测试" --mock                             （MockLLM + mock 工具，零 API 调用）
+//   go run ./agent-core/cmd/cli --query "attention mechanism" --mock --arxiv     （MockLLM + 真实 arXiv）
+//   go run ./agent-core/cmd/cli --query "attention mechanism" --arxiv            （DeepSeek + 真实 arXiv）
 //
 // 环境变量：
 //   DEEPSEEK_API_KEY — 设置后自动使用真实 DeepSeek（否则回退 MockLLM）
@@ -26,6 +28,7 @@ import (
 func main() {
 	query := flag.String("query", "", "向 Agent 提问的问题（必填）")
 	useMock := flag.Bool("mock", false, "强制使用 Mock LLM（无需 API Key）")
+	useArxiv := flag.Bool("arxiv", false, "使用真实 arXiv API（默认 mock 工具）")
 	flag.Parse()
 
 	if *query == "" {
@@ -83,8 +86,13 @@ func main() {
 	mem := memory.NewInMemoryStore()
 	ag := agent.New(llmClient, mem)
 
-	// 注册 Mock 工具（Phase 1 Day 4 替换为真实 arXiv 实现）
-	ag.RegisterTool(&tool.MockSearchPapers{})
+	// 注册工具
+	if *useArxiv {
+		ag.RegisterTool(tool.NewArxivSearch())
+		fmt.Println("📡 使用真实 arXiv API\n")
+	} else {
+		ag.RegisterTool(&tool.MockSearchPapers{})
+	}
 
 	// 创建会话
 	sessionID, err := mem.Create("cli-user", *query)
