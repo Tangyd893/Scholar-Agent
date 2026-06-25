@@ -1,5 +1,5 @@
 // Package server 实现 ToolService gRPC 接口。
-// Phase 1 支持 search_papers 和 get_abstract 两个工具。
+// Phase 2 新增 rag_query 和 generate_citation 工具。
 package server
 
 import (
@@ -9,20 +9,48 @@ import (
 	"log/slog"
 
 	"github.com/Tangyd893/Scholar-Agent/pkg/arxiv"
+	"github.com/Tangyd893/Scholar-Agent/pkg/embedding"
+	"github.com/Tangyd893/Scholar-Agent/pkg/paper"
+	"github.com/Tangyd893/Scholar-Agent/pkg/qdrant"
 	pb "github.com/Tangyd893/Scholar-Agent/proto/gen/tool"
+)
+
+const (
+	qdrantCollection = "papers"
+	embeddingDim     = 1536 // text-embedding-3-small
+	defaultTopK      = 5
 )
 
 // ToolServer 实现 proto ToolServiceServer 接口。
 type ToolServer struct {
 	pb.UnimplementedToolServiceServer
-	arxiv *arxiv.Client
+	arxiv   *arxiv.Client
+	embed   *embedding.Client
+	qdrant  *qdrant.Client
 }
 
 // New 创建 ToolService gRPC 服务端。
 func New() *ToolServer {
 	return &ToolServer{
-		arxiv: arxiv.NewClient(),
+		arxiv:  arxiv.NewClient(),
+		embed:  nil, // 延迟初始化（Phase 2 需要 EMBEDDING_API_KEY）
+		qdrant: qdrant.NewClient(qdrantCollection),
 	}
+}
+
+// initEmbed 延迟初始化 embedding 客户端。
+func (s *ToolServer) initEmbed() error {
+	if s.embed != nil {
+		return nil
+	}
+	c, err := embedding.NewClient()
+	if err != nil {
+		return err
+	}
+	s.embed = c
+
+	// 确保 Qdrant 集合存在
+	return s.qdrant.EnsureCollection(context.Background(), embeddingDim)
 }
 
 // Execute 执行同步工具调用。
@@ -34,21 +62,24 @@ func (s *ToolServer) Execute(ctx context.Context, req *pb.ExecuteRequest) (*pb.E
 		return s.searchPapers(ctx, req.ArgumentsJson)
 	case "get_abstract":
 		return s.getAbstract(ctx, req.ArgumentsJson)
+	case "rag_query":
+		return s.ragQuery(ctx, req.ArgumentsJson)
+	case "generate_citation":
+		return s.generateCitation(ctx, req.ArgumentsJson)
 	default:
-		return &pb.ExecuteResponse{
-			Error: fmt.Sprintf("unknown tool: %s", req.ToolName),
-		}, nil
+		return &pb.ExecuteResponse{Error: fmt.Sprintf("unknown tool: %s", req.ToolName)}, nil
 	}
 }
 
 // IngestPDF 提交 PDF 解析任务（Phase 2 实现）。
 func (s *ToolServer) IngestPDF(ctx context.Context, req *pb.IngestRequest) (*pb.IngestResponse, error) {
-	return &pb.IngestResponse{
-		JobId: "",
-	}, fmt.Errorf("IngestPDF not implemented in Phase 1")
+	return &pb.IngestResponse{JobId: ""}, fmt.Errorf("IngestPDF not implemented yet")
 }
 
-// searchPapers 处理 search_papers 工具调用。
+// =========================================================================
+// search_papers
+// =========================================================================
+
 func (s *ToolServer) searchPapers(ctx context.Context, argsJSON string) (*pb.ExecuteResponse, error) {
 	var params struct {
 		Query string `json:"query"`
@@ -69,7 +100,10 @@ func (s *ToolServer) searchPapers(ctx context.Context, argsJSON string) (*pb.Exe
 	return &pb.ExecuteResponse{Result: string(b)}, nil
 }
 
-// getAbstract 处理 get_abstract 工具调用。
+// =========================================================================
+// get_abstract
+// =========================================================================
+
 func (s *ToolServer) getAbstract(ctx context.Context, argsJSON string) (*pb.ExecuteResponse, error) {
 	var params struct {
 		PaperID string `json:"paper_id"`
@@ -88,4 +122,132 @@ func (s *ToolServer) getAbstract(ctx context.Context, argsJSON string) (*pb.Exec
 
 	b, _ := json.Marshal(paper)
 	return &pb.ExecuteResponse{Result: string(b)}, nil
+}
+
+// =========================================================================
+// rag_query（Phase 2）
+// =========================================================================
+
+func (s *ToolServer) ragQuery(ctx context.Context, argsJSON string) (*pb.ExecuteResponse, error) {
+	if err := s.initEmbed(); err != nil {
+		return &pb.ExecuteResponse{Error: fmt.Sprintf("embedding init: %v", err)}, nil
+	}
+
+	var params struct {
+		Query string `json:"query"`
+		TopK  int    `json:"top_k"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &params); err != nil {
+		return &pb.ExecuteResponse{Error: fmt.Sprintf("parse args: %v", err)}, nil
+	}
+	if params.Query == "" {
+		return &pb.ExecuteResponse{Error: "query is required"}, nil
+	}
+	if params.TopK <= 0 {
+		params.TopK = defaultTopK
+	}
+
+	// 向量化查询
+	vec, err := s.embed.Embed(ctx, params.Query)
+	if err != nil {
+		return &pb.ExecuteResponse{Error: fmt.Sprintf("embed query: %v", err)}, nil
+	}
+
+	// Qdrant 检索
+	results, err := s.qdrant.Search(ctx, vec, params.TopK)
+	if err != nil {
+		return &pb.ExecuteResponse{Error: fmt.Sprintf("qdrant search: %v", err)}, nil
+	}
+
+	b, _ := json.Marshal(map[string]interface{}{
+		"query":   params.Query,
+		"results": results,
+		"total":   len(results),
+	})
+	return &pb.ExecuteResponse{Result: string(b)}, nil
+}
+
+// =========================================================================
+// generate_citation（Phase 2）
+// =========================================================================
+
+func (s *ToolServer) generateCitation(ctx context.Context, argsJSON string) (*pb.ExecuteResponse, error) {
+	var params struct {
+		PaperID string `json:"paper_id"`
+		Format  string `json:"format"` // "bibtex"（默认）
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &params); err != nil {
+		return &pb.ExecuteResponse{Error: fmt.Sprintf("parse args: %v", err)}, nil
+	}
+	if params.PaperID == "" {
+		return &pb.ExecuteResponse{Error: "paper_id is required"}, nil
+	}
+	if params.Format == "" {
+		params.Format = "bibtex"
+	}
+
+	// 先从 arXiv 获取论文元数据
+	paper, err := s.arxiv.GetAbstract(ctx, params.PaperID)
+	if err != nil {
+		return &pb.ExecuteResponse{Error: fmt.Sprintf("get paper: %v", err)}, nil
+	}
+
+	citation := buildBibTeX(paper)
+	return &pb.ExecuteResponse{Result: citation}, nil
+}
+
+// buildBibTeX 根据论文元数据构造 BibTeX 条目。
+func buildBibTeX(p *paper.Paper) string {
+	// 构造 cite key: 第一作者姓氏 + 年份 + 标题首词
+	citeKey := fmt.Sprintf("%s%d%s",
+		safeAuthorLastName(p.Authors),
+		p.Year,
+		safeFirstWord(p.Title),
+	)
+
+	return fmt.Sprintf(`@article{%s,
+  author = {%s},
+  title = {%s},
+  journal = {arXiv preprint},
+  year = {%d},
+  note = {arXiv:%s},
+  url = {%s},
+}`, citeKey, joinAuthors(p.Authors), p.Title, p.Year, p.PaperID, p.URL)
+}
+
+func safeAuthorLastName(authors []string) string {
+	if len(authors) == 0 {
+		return "Unknown"
+	}
+	// 取第一作者逗号前的部分
+	name := authors[0]
+	for i, c := range name {
+		if c == ',' {
+			return name[:i]
+		}
+	}
+	return name
+}
+
+func safeFirstWord(title string) string {
+	for i, c := range title {
+		if c == ' ' {
+			return title[:i]
+		}
+	}
+	if len(title) > 10 {
+		return title[:10]
+	}
+	return title
+}
+
+func joinAuthors(authors []string) string {
+	s := ""
+	for i, a := range authors {
+		if i > 0 {
+			s += " and "
+		}
+		s += a
+	}
+	return s
 }

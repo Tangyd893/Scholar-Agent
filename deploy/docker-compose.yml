@@ -105,22 +105,22 @@ services:
   # =========================================================================
   # Phase 2 — Qdrant 向量数据库（RAG 知识库）
   # =========================================================================
-  # qdrant:
-  #   image: qdrant/qdrant:latest
-  #   container_name: scholar-qdrant
-  #   ports:
-  #     - "6333:6333"
-  #     - "6334:6334"
-  #   volumes:
-  #     - qdrant_data:/qdrant/storage
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 3
-  #   networks:
-  #     - scholar-net
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: scholar-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - scholar-net
 
   # =========================================================================
   # Phase 2 — RabbitMQ 消息队列（PDF 异步解析）
@@ -144,7 +144,7 @@ services:
 
 volumes:
   redis_data:
-  # qdrant_data:
+  qdrant_data:
   # rabbitmq_data:
 
 networks:

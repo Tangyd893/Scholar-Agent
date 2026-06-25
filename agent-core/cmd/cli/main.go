@@ -133,9 +133,37 @@ func main() {
 			},
 			"required": []string{"paper_id"},
 		})
+		grpcReg.RegisterMeta("rag_query", "查询本地知识库中的论文片段（需先上传 PDF 入库）", map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"query": map[string]interface{}{
+					"type":        "string",
+					"description": "查询问题，如 'Transformer 的注意力机制如何工作'",
+				},
+				"top_k": map[string]interface{}{
+					"type":        "integer",
+					"description": "返回结果数量，默认 5",
+				},
+			},
+			"required": []string{"query"},
+		})
+		grpcReg.RegisterMeta("generate_citation", "为指定论文生成 BibTeX 引用", map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"paper_id": map[string]interface{}{
+					"type":        "string",
+					"description": "arXiv 论文 ID，如 1706.03762",
+				},
+				"format": map[string]interface{}{
+					"type":        "string",
+					"description": "引用格式，默认 bibtex",
+				},
+			},
+			"required": []string{"paper_id"},
+		})
 
 		ag.SetToolExecutor(grpcReg)
-		fmt.Println("🔗 通过 gRPC 调用 tool-service\n")
+		fmt.Printf("🔗 通过 gRPC 调用 tool-service（%d 个工具）\n\n", len(grpcReg.List()))
 	} else if *useArxiv {
 		ag.RegisterTool(tool.NewArxivSearch())
 		fmt.Println("📡 使用真实 arXiv API（本地）\n")
